@@ -1,13 +1,15 @@
 #include "map_builder.h"
-#include <ceres/ceres.h>
-
-using ceres::AutoDiffCostFunction;
-using ceres::Solver;
-using ceres::Solve;
-using ceres::CostFunction;
+#include <g2o/types/slam3d/vertex_se3.h>
+#include <g2o/types/slam3d/edge_se3.h>
+#include <g2o/core/block_solver.h>
+#include <g2o/core/robust_kernel_impl.h>
+#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
 
 namespace lidar_slam_3d
 {
+typedef g2o::BlockSolver<g2o::BlockSolverTraits<-1, -1>> SlamBlockSolver;
+typedef g2o::LinearSolverCholmod<SlamBlockSolver::PoseMatrixType> SlamLinearSolver;
 
 // 默认构造函数，构造时认为是第一个点云，编号为0
 MapBuilder::MapBuilder() :
@@ -23,10 +25,11 @@ MapBuilder::MapBuilder() :
     ndt_.setResolution(1.0);
     ndt_.setMaximumIterations(30);
 
-    // 初始化ceres优化
-    options_.max_num_iterations = 200;
-    options_.linear_solver_type = ceres::DENSE_SCHUR;
-    options_.minimizer_progress_to_stdout = false;
+    SlamBlockSolver::LinearSolverType* linear_solver = new SlamLinearSolver;
+    SlamBlockSolver* solver_ptr = new SlamBlockSolver(linear_solver);
+    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr); // L-M
+    optimizer_.setAlgorithm(solver);
+    optimizer_.setVerbose(false);
 }
 
 // 采用voxelGridFilter对点云进行降采样
@@ -39,24 +42,16 @@ void MapBuilder::downSample(const pcl::PointCloud<pcl::PointXYZI>::Ptr& input_cl
     voxel_grid_filter.filter(*sampled_cloud);
 }
 
-/**********************************************************
 // 添加优化图的顶点，每个顶点为关键帧计算出的位姿变换矩阵
 void MapBuilder::addVertex(const KeyFrame::Ptr& key_frame)
 {
     g2o::VertexSE3* vertex(new g2o::VertexSE3());
     vertex->setId(key_frame->getId());
-    // 三维欧式变换矩阵isometry3d，接收一个matrix4f的矩阵
+    // 三维欧式变换矩阵isometrye3d，接收一个matrix4f的矩阵
     vertex->setEstimate(Eigen::Isometry3d(key_frame->getPose().cast<double>()));
     optimizer_.addVertex(vertex);
 }
-***********************************************************/
-// 添加位姿图的顶点
-void MapBuilder::addVertex(const KeyFrame::Ptr& key_frame)
-{
-    
-}
 
-/***********************************************************
 void MapBuilder::addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& source_pose,
                          const KeyFrame::Ptr& target, const Eigen::Matrix4f& target_pose,
                          const Eigen::Matrix<double, 6, 6>& information)
@@ -70,24 +65,17 @@ void MapBuilder::addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& sou
 
     edge->vertices()[0] = optimizer_.vertex(source_id);
     edge->vertices()[1] = optimizer_.vertex(target_id);
-    // 上一帧的位姿T_w_r和当前帧的位姿T_w_c的变换关系：
-    // 相对位姿relative_pose = T_c_w*T_w_r
+    // 上一帧的位姿T_r_w和当前帧的位姿T_c_w的变换关系：
+    // 
     Eigen::Isometry3d relative_pose((source_pose.inverse() * target_pose).cast<double>());
     edge->setId(edge_count);
     edge->setMeasurement(relative_pose);
     edge->setInformation(information);
     edge_count++;
-
+ 
     optimizer_.addEdge(edge);
 }
-***********************************************************/
-// 添加位姿图的约束，也就是边
-void MapBuilder::addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& source_pose,
-                         const KeyFrame::Ptr& target, const Eigen::Matrix4f& target_pose,
-                         const Eigen::Matrix<double, 6, 6>& information)
-{
 
-}
 // 查找回环检测中最接近当前帧位置的历史帧
 // 这里使用两帧之间的位置的二范数作为距离
 KeyFrame::Ptr MapBuilder::getClosestKeyFrame(const KeyFrame::Ptr& key_frame,
@@ -198,12 +186,9 @@ void MapBuilder::detectLoopClosure(const KeyFrame::Ptr& key_frame)
             // 在回环中找到最接近的关键帧
             KeyFrame::Ptr closest_keyframe = getClosestKeyFrame(key_frame, chain);
             // 将回环
-            /******************************************************
             addEdge(key_frame, loop_pose,
                     closest_keyframe, closest_keyframe->getPose(),
                     Eigen::Matrix<double, 6, 6>::Identity());
-            *******************************************************/
-
             loop_constraint_count_++;
             optimize_time_ = std::chrono::steady_clock::now();
             std::cout << "Add loop constraint." << std::endl;
@@ -252,7 +237,7 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
         key_frame->setPose(pose_);
         key_frame->setCloud(point_cloud);
         key_frames_.push_back(key_frame);
-        // addVertex(key_frame);
+        addVertex(key_frame);
         std::cout << "\033[1m\033[32m" << "------ Insert keyframe " << key_frames_.size() << " ------" << std::endl;
         return;
     }
@@ -269,7 +254,6 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
     ndt_.setInputSource(sampled_cloud);
     ndt_.align(output_cloud, pose_);
 
-    // pose_是Eigen::Matrix4f
     pose_ = ndt_.getFinalTransformation();
 
     bool converged = ndt_.hasConverged();
@@ -293,19 +277,14 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
         KeyFrame::Ptr key_frame(new KeyFrame());
         key_frame->setId(key_frames_.size());
         key_frame->setPose(pose_);
-        //Eigen::Matrix4f转Eigen::Vertex3d和Eigen::Quaterniond
-        key_frame->setPosePQ(pose_);
         key_frame->setCloud(point_cloud);
         key_frames_.push_back(key_frame);
 
         // 添加进优化器中，优化变量为相邻两帧
-        /******************************************************
         addVertex(key_frame);
         addEdge(key_frame, pose_,
                 key_frames_[key_frame->getId() - 1], key_frames_[key_frame->getId() - 1]->getPose(),
                 Eigen::Matrix<double, 6, 6>::Identity());
-        *******************************************************/
-        
 
         std::cout << "\033[1m\033[32m" << "------ Insert keyframe " << key_frames_.size() << " ------" << std::endl;
 
@@ -389,7 +368,7 @@ void MapBuilder::doPoseOptimize()
     int iter = optimizer_.optimize(100);
     auto t2 = std::chrono::steady_clock::now();
     auto delta_t = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
-    
+
     if (iter > 0) {
         std::cout << "Optimization finished after " << iter << " iterations. Cost time " <<
                      delta_t.count() * 1000.0 << "ms." << std::endl;
@@ -416,11 +395,9 @@ void MapBuilder::doPoseOptimize()
     pose_ = key_frames_.back()->getPose();
 }
 
-// 获取位姿节点，用于可视化
 void MapBuilder::getPoseGraph(std::vector<Eigen::Vector3d>& nodes,
                               std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>>& edges)
 {
-    /***************************************************************
     for(g2o::SparseOptimizer::VertexIDMap::iterator it = optimizer_.vertices().begin(); it != optimizer_.vertices().end(); ++it) {
         g2o::VertexSE3* v = dynamic_cast<g2o::VertexSE3*>(it->second);
         Eigen::Vector3d pt = v->estimate().translation();
@@ -435,7 +412,6 @@ void MapBuilder::getPoseGraph(std::vector<Eigen::Vector3d>& nodes,
        Eigen::Vector3d pt2 = v2->estimate().translation();
        edges.push_back(std::make_pair(pt1, pt2));
    }
-   ************************************************************/
 }
 
 } // namespace lidar_slam_3d

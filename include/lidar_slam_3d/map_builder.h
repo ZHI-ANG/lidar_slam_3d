@@ -5,11 +5,12 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/registration/ndt.h>
-#include <g2o/core/sparse_optimizer.h>
+#include <ceres/ceres.h>
 #include <chrono>
 #include <mutex>
 #include "math_func.h"
 #include "key_frame.h"
+// #include <g2o/core/sparse_optimizer.h>
 
 namespace lidar_slam_3d
 {
@@ -44,6 +45,7 @@ private:
     void addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& source_pose,
                  const KeyFrame::Ptr& target, const Eigen::Matrix4f& target_pose,
                  const Eigen::Matrix<double, 6, 6>& information);
+
     void updateMap();
     void updateSubmap();
     void detectLoopClosure(const KeyFrame::Ptr& key_frame);
@@ -57,8 +59,13 @@ private:
     std::vector<KeyFrame::Ptr> key_frames_; // 关键帧
 
     pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt_;
-    g2o::SparseOptimizer optimizer_;
 
+    // g2o::SparseOptimizer optimizer_;
+
+    ceres::Problem problem_; // 创建ceres优化问题
+    ceres::Solver::Options options_; // ceres求解器
+    ceres::Solver::Summary summary_;
+    
     Eigen::Matrix4f pose_; // 新位姿
     Eigen::Matrix4f last_update_pose_; // 旧位姿
     float voxel_grid_leaf_size_;

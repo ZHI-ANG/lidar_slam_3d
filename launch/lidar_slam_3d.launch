@@ -4,6 +4,7 @@
     <node name="lidar_slam_3d" pkg="lidar_slam_3d" type="lidar_slam_3d" output="screen">
         <param name="base_frame"        value="base_link"/>
         <param name="map_frame"        value="map"/>
+        <param name="imu_frame"        value="gps"/>
         <param name="publish_freq"        value="0.2"/>
         <param name="min_scan_distance"        value="5"/>
         <param name="point_cloud_topic"        value="velodyne_points"/>

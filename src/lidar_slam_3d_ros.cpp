@@ -8,10 +8,11 @@ LidarSlam3dRos::LidarSlam3dRos()
     ros::NodeHandle nh;
     ros::NodeHandle private_nh("~");
 
-    std::string point_cloud_topic, gps_topic;
+    std::string point_cloud_topic, gps_topic, imu_topic;
 
     private_nh.param("base_frame", base_frame_, std::string("base_link"));
     private_nh.param("map_frame", map_frame_, std::string("map"));
+    private_nh.param("imu_frame", imu_frame_, std::string("imu"));
     private_nh.param("publish_freq", publish_freq_, 0.2);
     private_nh.param("point_cloud_topic", point_cloud_topic, std::string("velodyne_points"));
     private_nh.param("gps_topic", gps_topic, std::string("fix"));
@@ -30,7 +31,7 @@ LidarSlam3dRos::LidarSlam3dRos()
 
     point_cloud_sub_ = nh.subscribe(point_cloud_topic, 10000, &LidarSlam3dRos::pointCloudCallback, this);
     gps_sub_ = nh.subscribe(gps_topic, 100, &LidarSlam3dRos::gpsCallback, this);
-
+    imu_sub_ = nh.subscribe(imu_topic, 100, &LidarSlam3dRos::imuCallback, this);
     // 启动publishLoop线程
     publish_thread_.reset(new std::thread(std::bind(&LidarSlam3dRos::publishLoop, this)));
 }
@@ -99,6 +100,14 @@ void LidarSlam3dRos::gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& gps_msg
     gps_path_msg_.header.stamp = gps_msg->header.stamp;
     gps_path_msg_.header.frame_id = map_frame_;
     gps_path_pub_.publish(gps_path_msg_);
+}
+
+// imu处理，用于形成高频的里程计，插值激光里程计
+void LidarSlam3dRos::imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg)
+{
+    static ros::Time imu_last_ = ros::Time(0);
+    float dt = (imu_msg->header.stamp-imu_last_).toSec();
+    imu_last_ = imu_msg->header.stamp;
 }
 
 // 点云匹配

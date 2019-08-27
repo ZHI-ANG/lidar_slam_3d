@@ -4,6 +4,7 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/NavSatFix.h>
+#include <sensor_msgs/Imu.h>
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <thread>
@@ -33,6 +34,7 @@ private:
     void publishTf(const Vector6f& pose, const ros::Time& t);
     void pointCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& point_cloud_msg);
     void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& gps_msg);
+    void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg);
     bool optimizationCallback(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
 
 private:
@@ -47,6 +49,7 @@ private:
     ros::ServiceServer optimization_srv_;
     ros::Subscriber point_cloud_sub_;
     ros::Subscriber gps_sub_;
+    ros::Subscriber imu_sub_; // add imu_sub_
     tf::TransformBroadcaster tf_broadcaster_;
     nav_msgs::Path path_msg_;
     nav_msgs::Path gps_path_msg_;
@@ -55,6 +58,7 @@ private:
 
     std::string base_frame_;
     std::string map_frame_;
+    std::string imu_frame_;
     double publish_freq_;
     double min_scan_distance_;
     bool enable_floor_filter_;

@@ -15,14 +15,13 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(Eigen3 REQUIRED)
-# find_package(G2O REQUIRED)
-find_package(Ceres REQUIRED)
+find_package(G2O REQUIRED)
 find_package(Cholmod REQUIRED)
 find_package(PCL REQUIRED)
 
-# set(G2O_LIBS
-#   ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} g2o_types_sba g2o_types_slam3d
-#)
+set(G2O_LIBS
+  ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} g2o_types_sba g2o_types_slam3d
+)
 
 catkin_package(
 )
@@ -33,8 +32,7 @@ include_directories(
   include/lidar_slam_3d
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
-#  ${G2O_INCLUDE_DIRS}
-  ${CERES_INCLUDE_DIRS}
+  ${G2O_INCLUDE_DIRS}
   ${CHOLMOD_INCLUDE_DIR}
 )
 
@@ -49,8 +47,7 @@ target_link_libraries(lidar_slam_3d
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
   ${CHOLMOD_LIBRARIES}
-#  ${G2O_LIBS}
-  ${CERES_LIBRARIES}
+  ${G2O_LIBS}
 )
 
 install(TARGETS lidar_slam_3d
