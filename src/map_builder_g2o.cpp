@@ -47,7 +47,7 @@ void MapBuilder::addVertex(const KeyFrame::Ptr& key_frame)
 {
     g2o::VertexSE3* vertex(new g2o::VertexSE3());
     vertex->setId(key_frame->getId());
-    // 三维欧式变换矩阵isometrye3d，接收一个matrix4f的矩阵
+    // 三维欧式变换矩阵isometrye3d，接收一个Matrix4f的矩阵
     vertex->setEstimate(Eigen::Isometry3d(key_frame->getPose().cast<double>()));
     optimizer_.addVertex(vertex);
 }
@@ -81,12 +81,12 @@ void MapBuilder::addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& sou
 KeyFrame::Ptr MapBuilder::getClosestKeyFrame(const KeyFrame::Ptr& key_frame,
                                              const std::vector<KeyFrame::Ptr>& candidates)
 {
-    Eigen::Vector3f pt1 = key_frame->getPose().block<3, 1>(0, 3);
+    Eigen::Vector3d pt1 = key_frame->getPose().block<3, 1>(0, 3);
     float min_distance = std::numeric_limits<float>::max();
     int id;
 
     for(const KeyFrame::Ptr& frame : candidates) {
-        Eigen::Vector3f pt2 = frame->getPose().block<3, 1>(0, 3);
+        Eigen::Vector3d pt2 = frame->getPose().block<3, 1>(0, 3);
         float distance = (pt1 - pt2).norm();
         if(distance < min_distance) {
             min_distance = distance;
@@ -105,11 +105,11 @@ void MapBuilder::detectLoopClosure(const KeyFrame::Ptr& key_frame)
 
     // 取出位姿的位置信息
     int n = key_frames_.size();
-    Eigen::Vector3f pt1 = key_frame->getPose().block<3, 1>(0, 3);
+    Eigen::Vector3d pt1 = key_frame->getPose().block<3, 1>(0, 3);
 
     // 在历史关键帧中遍历，求出当前帧和历史帧位置的距离
     for(int i = 0; i < n; ++i) {
-        Eigen::Vector3f pt2 = key_frames_[i]->getPose().block<3, 1>(0, 3);
+        Eigen::Vector3d pt2 = key_frames_[i]->getPose().block<3, 1>(0, 3);
         float distance = (pt1 - pt2).norm();
 
         // 若历史关键帧kf[i]和当前关键帧的位置距离小于阈值，即可能存在回环

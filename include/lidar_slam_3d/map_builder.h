@@ -10,6 +10,7 @@
 #include <mutex>
 #include "math_func.h"
 #include "key_frame.h"
+#include "types.h"
 // #include <g2o/core/sparse_optimizer.h>
 
 namespace lidar_slam_3d
@@ -36,15 +37,15 @@ public:
     }
     void getPoseGraph(std::vector<Eigen::Vector3d>& nodes,
                       std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>>& edges);
+
     void doPoseOptimize();
 
 private:
     void downSample(const pcl::PointCloud<pcl::PointXYZI>::Ptr& input_cloud,
                     pcl::PointCloud<pcl::PointXYZI>::Ptr& sampled_cloud);
-    void addVertex(const KeyFrame::Ptr& key_frame);
-    void addEdge(const KeyFrame::Ptr& source, const Eigen::Matrix4f& source_pose,
-                 const KeyFrame::Ptr& target, const Eigen::Matrix4f& target_pose,
-                 const Eigen::Matrix<double, 6, 6>& information);
+
+    void addResidualBlock(PosePQ& sourcePQ, const Eigen::Matrix4f& source_pose,
+                         PosePQ& targetPQ, const Eigen::Matrix4f& target_pose);
 
     void updateMap();
     void updateSubmap();
@@ -83,6 +84,7 @@ private:
     std::chrono::steady_clock::time_point optimize_time_;
     bool first_point_cloud_;
     std::mutex map_mutex_; // 互斥锁
+    MapOfPoses poses_; // 保存pose
 };
 
 } // namespace lidar_slam_3d

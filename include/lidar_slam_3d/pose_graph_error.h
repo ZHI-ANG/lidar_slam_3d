@@ -1,12 +1,15 @@
 #ifndef POSE_GRAPH_ERROR_H
 #define POSE_GRAPH_ERROR_H
 
+#include "types.h"
+#include <ceres/ceres.h>
+
 namespace lidar_slam_3d
 {
 
 class PoseGraph3dErrorTerm {
  public:
-  PoseGraph3dErrorTerm(const Pose3d& t_ab_measured): t_ab_measured_(t_ab_measured){}
+  PoseGraph3dErrorTerm(const PosePQ& t_ab_measured): t_ab_measured_(t_ab_measured){}
 
   template <typename T>
   bool operator()(const T* const p_a_ptr, const T* const q_a_ptr,
@@ -40,7 +43,7 @@ class PoseGraph3dErrorTerm {
     return true;
   }
 
-  static ceres::CostFunction* Create(const Pose3d& t_ab_measured) {
+  static ceres::CostFunction* Create(const PosePQ& t_ab_measured) {
     // 注意，residual是6D，pose和quaternion各3个自由度
     return new ceres::AutoDiffCostFunction<PoseGraph3dErrorTerm, 6, 3, 4, 3, 4>(
         new PoseGraph3dErrorTerm(t_ab_measured));
@@ -50,7 +53,7 @@ class PoseGraph3dErrorTerm {
 
  private:
   // The measurement for the position of B relative to A in the A frame.
-  const Pose3d t_ab_measured_;
+  const PosePQ t_ab_measured_;
 };
 
 }  // namespace lidar_slam_3d

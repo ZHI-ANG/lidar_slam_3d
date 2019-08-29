@@ -6,15 +6,10 @@
 #include <pcl/point_types.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include "types.h"
 
 namespace lidar_slam_3d
 {
-
-struct PosePQ{
-    Eigen::Vector3d p;
-    Eigen::Quaterniond q;
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-};
 
 class KeyFrame
 {
@@ -32,11 +27,15 @@ public:
     ~KeyFrame() {}
 
     void setId(int id) { id_ = id; }
-    void setPose(const Eigen::Matrix4f& pose) { pose_ = pose; }
-    // 从变换矩阵获得位置和姿态
-    void setPosePQ(const Eigen::Matrix4f& pose){
+    void setPose(const Eigen::Matrix4f& pose) {
+        pose_ = pose; 
         pq_.p = pose.block<3,1>(0,3).template cast<double>(); // 取出t部分：起点是0行3列，取3行1列
         pq_.q = Eigen::Quaterniond(pose.block<3,3>(0,0).template cast<double>()); // 取出R部分：起点是0行0列，取3行3列
+    }
+    // 从变换矩阵获得位置和姿态
+    void setPosePQ(const Eigen::Vector3d& p, const Eigen::Quaterniond& q){
+        pq_.p = p;
+        pq_.q = q;
     }
     void setCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud) { cloud_ = cloud; }
 
