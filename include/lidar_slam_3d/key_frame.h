@@ -36,6 +36,8 @@ public:
     void setPosePQ(const Eigen::Vector3d& p, const Eigen::Quaterniond& q){
         pq_.p = p;
         pq_.q = q;
+        pose_.block<3,1>(0,3) = p.template cast<float>();
+        pose_.block<3,3>(0,0) = q.toRotationMatrix().template cast<float>();
     }
     void setCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud) { cloud_ = cloud; }
 

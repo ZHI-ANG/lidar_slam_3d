@@ -44,9 +44,6 @@ private:
     void downSample(const pcl::PointCloud<pcl::PointXYZI>::Ptr& input_cloud,
                     pcl::PointCloud<pcl::PointXYZI>::Ptr& sampled_cloud);
 
-    void addResidualBlock(PosePQ& sourcePQ, const Eigen::Matrix4f& source_pose,
-                         PosePQ& targetPQ, const Eigen::Matrix4f& target_pose);
-
     void updateMap();
     void updateSubmap();
     void detectLoopClosure(const KeyFrame::Ptr& key_frame);
@@ -58,15 +55,12 @@ private:
     pcl::PointCloud<pcl::PointXYZI> map_;
     std::vector<pcl::PointCloud<pcl::PointXYZI>::Ptr> submap_; // 局部地图
     std::vector<KeyFrame::Ptr> key_frames_; // 关键帧
-
+    std::vector<LoopConstraint> vLoopConstraint; // 回环约束
     pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt_;
-
+    ceres::LocalParameterization* quaternion_local_parameterization =
+        new ceres::EigenQuaternionParameterization;
     // g2o::SparseOptimizer optimizer_;
 
-    ceres::Problem problem_; // 创建ceres优化问题
-    ceres::Solver::Options options_; // ceres求解器
-    ceres::Solver::Summary summary_;
-    
     Eigen::Matrix4f pose_; // 新位姿
     Eigen::Matrix4f last_update_pose_; // 旧位姿
     float voxel_grid_leaf_size_;
@@ -84,7 +78,6 @@ private:
     std::chrono::steady_clock::time_point optimize_time_;
     bool first_point_cloud_;
     std::mutex map_mutex_; // 互斥锁
-    MapOfPoses poses_; // 保存pose
 };
 
 } // namespace lidar_slam_3d

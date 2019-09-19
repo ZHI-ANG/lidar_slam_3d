@@ -14,9 +14,11 @@ struct PosePQ{
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-typedef std::map<int, PosePQ, std::less<int>, Eigen::aligned_allocator<std::pair<const int, PosePQ> > >
-    MapOfPoses;
-
+struct LoopConstraint{
+    int first_;
+    int second_;
+    Eigen::Matrix4f loop_pose_; // 当前关键帧在回环点云中的位姿
+};
 
 } //namespace lidar_slam_3d
 #endif

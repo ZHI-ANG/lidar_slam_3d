@@ -23,11 +23,6 @@ MapBuilder::MapBuilder() :
     ndt_.setStepSize(0.1);
     ndt_.setResolution(1.0);
     ndt_.setMaximumIterations(30);
-
-    // 初始化ceres优化
-    options_.max_num_iterations = 200;
-    options_.linear_solver_type = ceres::DENSE_SCHUR;
-    options_.minimizer_progress_to_stdout = false;
 }
 
 // 采用voxelGridFilter对点云进行降采样
@@ -38,47 +33,6 @@ void MapBuilder::downSample(const pcl::PointCloud<pcl::PointXYZI>::Ptr& input_cl
     voxel_grid_filter.setLeafSize(voxel_grid_leaf_size_, voxel_grid_leaf_size_, voxel_grid_leaf_size_);
     voxel_grid_filter.setInputCloud(input_cloud);
     voxel_grid_filter.filter(*sampled_cloud);
-}
-
-// 添加位姿图的约束，也就是边
-// 注意，传给的变量应当是map中posePQ的引用，这样以后才能取出优化的值
-// 之所以还要留source_pose和target_pose的接口，是因为有些位姿顶点的约束(相对位姿)不止一个，比如回环检测，需要计算相对位姿
-void MapBuilder::addResidualBlock(PosePQ& sourcePQ, const Eigen::Matrix4f& source_pose,
-                         PosePQ& targetPQ, const Eigen::Matrix4f& target_pose)
-{
-    Eigen::Quaterniond source_q, target_q;
-    Eigen::Vector3d source_p, target_p;
-
-    source_p = source_pose.block<3,1>(0,3).template cast<double>();
-    target_p = target_pose.block<3,1>(0,3).template cast<double>();
-    source_q = Eigen::Quaterniond(source_pose.block<3,3>(0,0).template cast<double>());
-    target_q = Eigen::Quaterniond(target_pose.block<3,3>(0,0).template cast<double>());
-
-    // 计算pq间的相对运动
-    PosePQ relative_measured;
-    
-    // 相对旋转
-    Eigen::Quaterniond source_q_inv = source_q.conjugate();
-    Eigen::Quaterniond relative_q = source_q_inv * target_q;
-    // 相对位移
-    Eigen::Vector3d relative_p = source_q_inv*(source_p - target_p);
-
-    relative_measured.p = relative_p;
-    relative_measured.q = relative_q;
-
-    ceres::LossFunction* loss_function = NULL;
-    ceres::LocalParameterization* quaternion_local_parameterization =
-        new ceres::EigenQuaternionParameterization;
-
-    ceres::CostFunction* cost_function = PoseGraph3dErrorTerm::Create(relative_measured);
-
-    problem_.AddResidualBlock(cost_function, loss_function, 
-        sourcePQ.p.data(), sourcePQ.q.coeffs().data(), targetPQ.p.data(), targetPQ.q.coeffs().data());
-    // 自定义相加操作
-    problem_.SetParameterization(sourcePQ.q.coeffs().data(),
-                                 quaternion_local_parameterization);
-    problem_.SetParameterization(targetPQ.q.coeffs().data(),
-                                 quaternion_local_parameterization);
 }
 
 // 查找回环检测中最接近当前帧位置的历史帧
@@ -190,8 +144,11 @@ void MapBuilder::detectLoopClosure(const KeyFrame::Ptr& key_frame)
         if(converged && fitness_score < loop_min_fitness_score_) {
             // 在回环中找到最接近的关键帧
             KeyFrame::Ptr closest_keyframe = getClosestKeyFrame(key_frame, chain);
-            // 将回环检测得到的两帧的约束添加进位姿图
-            addResidualBlock(poses_[key_frame->getId()], loop_pose, poses_[closest_keyframe->getId()], closest_keyframe->getPose());
+            // 将回环检测得到的两帧的约束添加进回环队列中
+            LoopConstraint lc; lc.first_ = key_frame->getId(); lc.second_ = closest_keyframe->getId();
+            lc.loop_pose_ = loop_pose;
+            vLoopConstraint.push_back(lc);
+
             loop_constraint_count_++;
             optimize_time_ = std::chrono::steady_clock::now();
             std::cout << "Add loop constraint." << std::endl;
@@ -228,7 +185,7 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
     auto t1 = std::chrono::steady_clock::now();
     sequence_num_++;
 
-    // 若是第一个点云，则仅仅添加进key_frame中
+    // 若是第一个点云，则仅仅添加进key_frame中 
     if(first_point_cloud_) {
         first_point_cloud_ = false;
         map_ += *point_cloud;
@@ -237,12 +194,13 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
 
         KeyFrame::Ptr key_frame(new KeyFrame());
         key_frame->setId(key_frames_.size());
+
+        std::cout<<"first key_frame, ID: "<<key_frames_.size()<<std::endl;
+
         key_frame->setPose(pose_);
         key_frame->setCloud(point_cloud);
         key_frames_.push_back(key_frame);
 
-        // 将第一个点加入MapOfPoses
-        poses_[0] = key_frame->getPosePQ();
         std::cout << "\033[1m\033[32m" << "------ Insert keyframe " << key_frames_.size() << " ------" << std::endl;
         return;
     }
@@ -286,11 +244,6 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
         //Eigen::Matrix4f转Eigen::Vertex3d和Eigen::Quaterniond
         key_frame->setCloud(point_cloud);
         key_frames_.push_back(key_frame);
-
-        // 将当前帧添加进map中
-        poses_[key_frames_.size()] = key_frame->getPosePQ();
-        // 由这一帧和上一帧构建cost function
-        addResidualBlock(poses_[key_frames_.size()], key_frame->getPose(), poses_[key_frames_.size()-1],key_frames_[key_frame->getId()-1]->getPose());
 
         std::cout << "\033[1m\033[32m" << "------ Insert keyframe " << key_frames_.size() << " ------" << std::endl;
 
@@ -360,30 +313,113 @@ void MapBuilder::updateMap()
 }
 
 // 进行位姿优化
+// 1. 首先将相邻两帧keyframe的位姿添加到约束中，直接使用for循环遍历key_frames_
+// 2. 然后将回环检测添加到约束中，使用for循环遍历mapofloop
 void MapBuilder::doPoseOptimize()
 {   
-    //将第一个位姿设置为固定，不优化
-    MapOfPoses::iterator pose_start_iter = poses_.begin();
-    problem_.SetParameterBlockConstant(pose_start_iter->second.p.data());
-    problem_.SetParameterBlockConstant(pose_start_iter->second.q.coeffs().data());
+    ceres::Problem problem; // 创建ceres优化问题
+    ceres::Solver::Options options; // ceres求解器
+    ceres::Solver::Summary summary;
+    ceres::LocalParameterization* quaternion_local_parameterization = new ceres::QuaternionParameterization();
+    // 初始化ceres优化
+    options.max_num_iterations = 1000;
+    // options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.minimizer_progress_to_stdout = false;
 
-    ceres::Solve(options_, &problem_, &summary_);
-    
-    if(!summary_.IsSolutionUsable())
-        std::cout << "CERES SOLVE FAILED" <<std::endl;
-    else{ // 优化成功，将优化的位姿取出，付给key_frames
-        for(std::map<int,PosePQ,std::less<int>,
-                    Eigen::aligned_allocator<std::pair<const int, PosePQ> > >
-                ::const_iterator poses_iter = poses_.begin(); 
-                poses_iter != poses_.end(); ++poses_iter){
-            const std::map<int, PosePQ, std::less<int>,
-                   Eigen::aligned_allocator<std::pair<const int, PosePQ> > >::
-                value_type& pair = *poses_iter;
-            key_frames_[pair.first]->setPosePQ(pair.second.p, pair.second.q);
-        }
+    int kf_len = key_frames_.size(); // keyframe长度，用来生成优化变量
+    Eigen::Vector3d array_t[kf_len]; // 存储平移
+    Eigen::Quaterniond array_q[kf_len]; // 存储旋转四元数
+    array_t[0] = key_frames_[0]->getPosePQ().p;
+    array_q[0] = key_frames_[0]->getPosePQ().q;
+
+    // 依次添加key_frames_中的位姿
+    for(int i = 1;i<kf_len-1;i++){
+
+        Eigen::Quaterniond source_q, target_q;
+        Eigen::Vector3d source_p, target_p;
+
+        // 存储平移和旋转，传值
+        array_t[i] = key_frames_[i]->getPosePQ().p;
+        array_q[i] = key_frames_[i]->getPosePQ().q;
+
+        // 观测，不需要改变，因此不需要存储
+        Eigen::Matrix4f source_pose = key_frames_[i]->getPose();
+        Eigen::Matrix4f target_pose = key_frames_[i-1]->getPose();
+        source_p = source_pose.block<3,1>(0,3).template cast<double>();
+        target_p = target_pose.block<3,1>(0,3).template cast<double>();
+        source_q = Eigen::Quaterniond(source_pose.block<3,3>(0,0).template cast<double>());
+        target_q = Eigen::Quaterniond(target_pose.block<3,3>(0,0).template cast<double>());
+
+        // 计算pq间的相对运动
+        PosePQ relative_measured;
+        Eigen::Quaterniond source_q_inv = source_q.conjugate();
+        Eigen::Quaterniond relative_q = source_q_inv * target_q;
+        Eigen::Vector3d relative_p = source_q_inv*(source_p - target_p);
+        relative_measured.p = relative_p;
+        relative_measured.q = relative_q;
+
+        ceres::LossFunction* loss_function = NULL;
+        ceres::CostFunction* cost_function = PoseGraph3dErrorTerm::Create(relative_measured);
+
+        problem.AddResidualBlock(cost_function, loss_function, 
+            array_t[i].data(), array_q[i].coeffs().data(), array_t[i-1].data(), array_q[i-1].coeffs().data());
+
+        // 自定义相加操作
+        problem.SetParameterization(array_q[i].coeffs().data(),
+                                 quaternion_local_parameterization);
     }
 
+    //将第一个位姿设置为固定，不优化
+    problem.SetParameterBlockConstant(array_t[0].data()); 
+    problem.SetParameterBlockConstant(array_q[0].coeffs().data());
+    problem.SetParameterization(array_q[0].coeffs().data(),
+                                 quaternion_local_parameterization);
+    
+    // 依次添加回环中的位姿约束
+    int loop_size = vLoopConstraint.size();
+    for(int i = 0; i<loop_size; i++){
+        Eigen::Quaterniond source_q, target_q;
+        Eigen::Vector3d source_p, target_p;
+
+        // 观测，不需要改变，因此不需要存储
+        Eigen::Matrix4f source_pose = vLoopConstraint[i].loop_pose_; // 这里作为观测出现
+        Eigen::Matrix4f target_pose = key_frames_[vLoopConstraint[i].second_]->getPose();
+        source_p = source_pose.block<3,1>(0,3).template cast<double>();
+        target_p = target_pose.block<3,1>(0,3).template cast<double>();
+        source_q = Eigen::Quaterniond(source_pose.block<3,3>(0,0).template cast<double>());
+        target_q = Eigen::Quaterniond(target_pose.block<3,3>(0,0).template cast<double>());
+
+        // 计算pq间的相对运动
+        PosePQ relative_measured;
+        Eigen::Quaterniond source_q_inv = source_q.conjugate();
+        Eigen::Quaterniond relative_q = source_q_inv * target_q;
+        Eigen::Vector3d relative_p = source_q_inv*(source_p - target_p);
+        relative_measured.p = relative_p;
+        relative_measured.q = relative_q;
+
+        ceres::LossFunction* loss_function = NULL;
+        ceres::CostFunction* cost_function = PoseGraph3dErrorTerm::Create(relative_measured);
+
+        problem.AddResidualBlock(cost_function, loss_function, 
+            array_t[vLoopConstraint[i].first_].data(), array_q[vLoopConstraint[i].first_].coeffs().data(), 
+                            array_t[vLoopConstraint[i].second_].data(), array_q[vLoopConstraint[i].second_].coeffs().data());
+
+    }
+
+    std::cout<<"\033[33mOptimizing....\033[0m"<<std::endl;
+    ceres::Solve(options, &problem, &summary);
+    
+    if(!summary.IsSolutionUsable())
+        std::cout << "CERES SOLVE FAILED" <<std::endl;
+    else{ // 优化成功，将优化的位姿取出，付给key_frames
+        for(int i = 0; i<key_frames_.size(); i++){
+            std::cout<< summary.BriefReport() <<std::endl;
+            key_frames_[i]->setPosePQ(array_t[i],array_q[i]);
+        }
+    }
 }
+
+
 // 获取位姿节点，用于可视化
 void MapBuilder::getPoseGraph(std::vector<Eigen::Vector3d>& nodes,
                               std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>>& edges)

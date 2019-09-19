@@ -15,7 +15,8 @@ LidarSlam3dRos::LidarSlam3dRos()
     private_nh.param("imu_frame", imu_frame_, std::string("imu"));
     private_nh.param("publish_freq", publish_freq_, 0.2);
     private_nh.param("point_cloud_topic", point_cloud_topic, std::string("velodyne_points"));
-    private_nh.param("gps_topic", gps_topic, std::string("fix"));
+    private_nh.param("gps_topic", gps_topic, std::string("gps"));
+    private_nh.param("imu_topic", imu_topic, std::string("imu_raw"));
     private_nh.param("min_scan_distance", min_scan_distance_, 2.0);
     private_nh.param("enable_floor_filter", enable_floor_filter_, true);
 
@@ -64,6 +65,7 @@ bool LidarSlam3dRos::optimizationCallback(std_srvs::Empty::Request& req, std_srv
     return true;
 }
 
+// 仅仅是画出gps轨迹，没有进行融合，这里是否可以进行融合？参照vins fusion
 void LidarSlam3dRos::gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& gps_msg)
 {
     if(gps_msg->status.status == -1) {
