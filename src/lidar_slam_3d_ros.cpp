@@ -180,6 +180,7 @@ void LidarSlam3dRos::publishPose(const Vector6f& pose, const ros::Time& t)
 // 接收一个位姿和时间戳，生成路径并发布
 void LidarSlam3dRos::publishPath()
 {
+    path_msg_.poses.clear(); // 清除历史路径
     geometry_msgs::PoseStamped pose_msg;
 
     for(auto iter = map_builder_.vPoses.begin();iter!=map_builder_.vPoses.end();iter++){
