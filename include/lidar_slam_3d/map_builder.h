@@ -8,10 +8,12 @@
 #include <ceres/ceres.h>
 #include <chrono>
 #include <mutex>
+#include <utility>
 #include "math_func.h"
 #include "key_frame.h"
 #include "types.h"
-// #include <g2o/core/sparse_optimizer.h>
+
+typedef Eigen::Matrix<float, 6, 1> Vector6f;
 
 namespace lidar_slam_3d
 {
@@ -30,6 +32,7 @@ public:
     void setSubmapSize(int size) { submap_size_ = size; }
 
     Eigen::Matrix4f getTransformation() { return pose_; }
+    std::vector< std::pair< Eigen::Vector3d, Eigen::Quaterniond> > vPoses; // 将历史位姿添加进去
     void getMap(sensor_msgs::PointCloud2& map_msg)
     {
         std::unique_lock<std::mutex> locker(map_mutex_);
@@ -59,7 +62,6 @@ private:
     pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt_;
     ceres::LocalParameterization* quaternion_local_parameterization =
         new ceres::EigenQuaternionParameterization;
-    // g2o::SparseOptimizer optimizer_;
 
     Eigen::Matrix4f pose_; // 新位姿
     Eigen::Matrix4f last_update_pose_; // 旧位姿
@@ -78,6 +80,7 @@ private:
     std::chrono::steady_clock::time_point optimize_time_;
     bool first_point_cloud_;
     std::mutex map_mutex_; // 互斥锁
+    std::mutex vPoses_mutex;
 };
 
 } // namespace lidar_slam_3d

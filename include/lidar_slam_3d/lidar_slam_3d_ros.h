@@ -30,7 +30,7 @@ private:
     void publishMap();
     void publishConstraintList();
     void publishPose(const Vector6f& pose, const ros::Time& t);
-    void publishPath(const Vector6f& pose, const ros::Time& t);
+    void publishPath();
     void publishTf(const Vector6f& pose, const ros::Time& t);
     void pointCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& point_cloud_msg);
     void gpsCallback(const sensor_msgs::NavSatFix::ConstPtr& gps_msg);

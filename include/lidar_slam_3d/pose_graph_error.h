@@ -12,8 +12,8 @@ class PoseGraph3dErrorTerm {
   PoseGraph3dErrorTerm(const PosePQ& t_ab_measured): t_ab_measured_(t_ab_measured){}
 
   template <typename T>
-  bool operator()(const T* const p_a_ptr, const T* const q_a_ptr,
-                  const T* const p_b_ptr, const T* const q_b_ptr,
+  bool operator()(const T* const p_a_ptr, const T* const q_a_ptr, /*source*/
+                  const T* const p_b_ptr, const T* const q_b_ptr, /*target*/
                   T* residuals_ptr) const {
     Eigen::Map<const Eigen::Matrix<T, 3, 1> > p_a(p_a_ptr);
     Eigen::Map<const Eigen::Quaternion<T> > q_a(q_a_ptr);

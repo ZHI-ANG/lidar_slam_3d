@@ -245,6 +245,11 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
         key_frame->setCloud(point_cloud);
         key_frames_.push_back(key_frame);
 
+        { // 利用作用域，设置互斥
+            PosePQ pq = key_frame->getPosePQ();
+            std::unique_lock<std::mutex> locker(vPoses_mutex);
+            vPoses.push_back(std::make_pair(pq.p,pq.q));
+        }
         std::cout << "\033[1m\033[32m" << "------ Insert keyframe " << key_frames_.size() << " ------" << std::endl;
 
         // 检测是否回环
@@ -275,6 +280,8 @@ void MapBuilder::addPointCloud(const pcl::PointCloud<pcl::PointXYZI>::Ptr& point
         }
         // 更新用于匹配的局部地图
         ndt_.setInputTarget(target_cloud);
+
+        // 发布轨迹
     }
 
     auto t2 = std::chrono::steady_clock::now();
@@ -354,7 +361,7 @@ void MapBuilder::doPoseOptimize()
         PosePQ relative_measured;
         Eigen::Quaterniond source_q_inv = source_q.conjugate();
         Eigen::Quaterniond relative_q = source_q_inv * target_q;
-        Eigen::Vector3d relative_p = source_q_inv*(source_p - target_p);
+        Eigen::Vector3d relative_p = source_q_inv*(target_p - source_p);
         relative_measured.p = relative_p;
         relative_measured.q = relative_q;
 
@@ -412,9 +419,11 @@ void MapBuilder::doPoseOptimize()
     if(!summary.IsSolutionUsable())
         std::cout << "CERES SOLVE FAILED" <<std::endl;
     else{ // 优化成功，将优化的位姿取出，付给key_frames
+        std::cout<< summary.BriefReport() <<std::endl;
+        std::unique_lock<std::mutex> locker(vPoses_mutex);
         for(int i = 0; i<key_frames_.size(); i++){
-            std::cout<< summary.BriefReport() <<std::endl;
             key_frames_[i]->setPosePQ(array_t[i],array_q[i]);
+            vPoses.push_back(std::make_pair(array_t[i],array_q[i])); // 添加到vPoses向量中
         }
     }
 }
@@ -423,23 +432,8 @@ void MapBuilder::doPoseOptimize()
 // 获取位姿节点，用于可视化
 void MapBuilder::getPoseGraph(std::vector<Eigen::Vector3d>& nodes,
                               std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>>& edges)
-{
-    /***************************************************************
-    for(g2o::SparseOptimizer::VertexIDMap::iterator it = optimizer_.vertices().begin(); it != optimizer_.vertices().end(); ++it) {
-        g2o::VertexSE3* v = dynamic_cast<g2o::VertexSE3*>(it->second);
-        Eigen::Vector3d pt = v->estimate().translation();
-        nodes.push_back(pt);
-    }
-
-   for(g2o::SparseOptimizer::EdgeSet::iterator it = optimizer_.edges().begin(); it != optimizer_.edges().end(); ++it) {
-       g2o::EdgeSE3* e = dynamic_cast<g2o::EdgeSE3*>(*it);
-       g2o::VertexSE3* v1 = dynamic_cast<g2o::VertexSE3*>(e->vertices()[0]);
-       g2o::VertexSE3* v2 = dynamic_cast<g2o::VertexSE3*>(e->vertices()[1]);
-       Eigen::Vector3d pt1 = v1->estimate().translation();
-       Eigen::Vector3d pt2 = v2->estimate().translation();
-       edges.push_back(std::make_pair(pt1, pt2));
-   }
-   ************************************************************/
+{  
+    return;
 }
 
 } // namespace lidar_slam_3d

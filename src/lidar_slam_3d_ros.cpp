@@ -13,7 +13,7 @@ LidarSlam3dRos::LidarSlam3dRos()
     private_nh.param("base_frame", base_frame_, std::string("base_link"));
     private_nh.param("map_frame", map_frame_, std::string("map"));
     private_nh.param("imu_frame", imu_frame_, std::string("imu"));
-    private_nh.param("publish_freq", publish_freq_, 0.2);
+    private_nh.param("publish_freq", publish_freq_, 0.5);
     private_nh.param("point_cloud_topic", point_cloud_topic, std::string("velodyne_points"));
     private_nh.param("gps_topic", gps_topic, std::string("gps"));
     private_nh.param("imu_topic", imu_topic, std::string("imu_raw"));
@@ -156,7 +156,6 @@ void LidarSlam3dRos::pointCloudCallback(const sensor_msgs::PointCloud2::ConstPtr
     Vector6f pose = getPose(map_builder_.getTransformation());
     publishPose(pose, point_cloud_msg->header.stamp);
     publishTf(pose, point_cloud_msg->header.stamp);
-    publishPath(pose, point_cloud_msg->header.stamp);
 }
 
 // 接收一个位姿和时间戳，生成位姿并发布
@@ -179,33 +178,34 @@ void LidarSlam3dRos::publishPose(const Vector6f& pose, const ros::Time& t)
 }
 
 // 接收一个位姿和时间戳，生成路径并发布
-void LidarSlam3dRos::publishPath(const Vector6f& pose, const ros::Time& t)
+void LidarSlam3dRos::publishPath()
 {
     geometry_msgs::PoseStamped pose_msg;
-    pose_msg.header.stamp = t;
-    pose_msg.header.frame_id = map_frame_;
-    pose_msg.pose.position.x = pose(0);
-    pose_msg.pose.position.y = pose(1);
-    pose_msg.pose.position.z = pose(2);
 
-    tf::Quaternion q;
-    q.setRPY(pose(3), pose(4), pose(5));
-    pose_msg.pose.orientation.x = q.x();
-    pose_msg.pose.orientation.y = q.y();
-    pose_msg.pose.orientation.z = q.z();
-    pose_msg.pose.orientation.w = q.w();
+    for(auto iter = map_builder_.vPoses.begin();iter!=map_builder_.vPoses.end();iter++){
+        pose_msg.header.stamp = ros::Time::now();
+        pose_msg.header.frame_id = map_frame_;
+        pose_msg.pose.position.x = iter->first.x();
+        pose_msg.pose.position.y = iter->first.y();
+        pose_msg.pose.position.z = iter->first.z();
 
-    // 将位姿添加到路径中，并发布
-    path_msg_.poses.push_back(pose_msg);
+        pose_msg.pose.orientation.x = iter->second.x();
+        pose_msg.pose.orientation.y = iter->second.y();
+        pose_msg.pose.orientation.z = iter->second.z();
+        pose_msg.pose.orientation.w = iter->second.w();
 
-    path_msg_.header.stamp = t;
+        // 将位姿添加到路径中，并发布
+        path_msg_.poses.push_back(pose_msg);
+    }
+
+    path_msg_.header.stamp = ros::Time::now();
     path_msg_.header.frame_id = map_frame_;
     path_pub_.publish(path_msg_);
 }
 
 void LidarSlam3dRos::publishTf(const Vector6f& pose, const ros::Time& t)
 {
-    // 将当前的位姿的旋转发布出来？？？？
+    // 将当前的位姿发布出来
     tf::Transform transform;
     transform.setOrigin(tf::Vector3(pose(0), pose(1), pose(2)));
     tf::Quaternion q;
@@ -302,6 +302,7 @@ void LidarSlam3dRos::publishLoop()
     ros::Rate rate(publish_freq_);
 
     while (ros::ok()) {
+        publishPath();
         publishMap();
         publishConstraintList();
         rate.sleep();
